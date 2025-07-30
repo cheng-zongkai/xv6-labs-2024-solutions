@@ -318,9 +318,14 @@ fork(void)
   np->parent = p;
   release(&wait_lock);
 
-  acquire(&np->lock);
+  // Eliminate some of the serialization in xv6’s fork().
+  // acquire(&np->lock);
+  // np->state = RUNNABLE;
+  // release(&np->lock);
+  
+  // 不确定是否正确，可能？？
+  __sync_synchronize();
   np->state = RUNNABLE;
-  release(&np->lock);
 
   return pid;
 }
