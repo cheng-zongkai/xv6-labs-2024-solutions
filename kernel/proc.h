@@ -104,4 +104,11 @@ struct proc {
   struct file *ofile[NOFILE];  // Open files
   struct inode *cwd;           // Current directory
   char name[16];               // Process name (debugging)
+
+  // data needed for sigalarm
+  struct trapframe* itrapframe; // saved interrupted trapframe, used to restore trapframe when sigreturn  
+  int alarminterval;
+  int tickspassed;              // how many ticks have passed since the last call (or are left until the next call) to a process's alarm handler; 
+  void (*alarmhandler)(void);
+  int alarmready;               // ready for next alarm?              
 };

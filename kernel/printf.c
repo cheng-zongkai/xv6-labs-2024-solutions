@@ -99,7 +99,7 @@ printf(char *fmt, ...)
       printint(va_arg(ap, uint64), 10, 0);
       i += 2;
     } else if(c0 == 'x'){
-      printint(va_arg(ap, int), 16, 0);
+      printint(va_arg(ap, uint), 16, 0);
     } else if(c0 == 'l' && c1 == 'x'){
       printint(va_arg(ap, uint64), 16, 0);
       i += 1;
@@ -175,4 +175,17 @@ printfinit(void)
 {
   initlock(&pr.lock, "pr");
   pr.locking = 1;
+}
+
+void
+backtrace() 
+{
+  uint64 fp = r_fp();
+  uint64 ra, pfp=fp;
+
+  while(pfp % PGSIZE != 0){
+    ra = *(uint64*)(pfp-8);
+    pfp = *(uint64*)(pfp-16);
+    printf("%p\n", (void*)ra);
+  }
 }
