@@ -49,8 +49,10 @@ usertrap(void)
   
   // save user program counter.
   p->trapframe->epc = r_sepc();
+
+  uint64 scause = r_scause();
   
-  if(r_scause() == 8){
+  if(scause == 8){
     // system call
 
     if(killed(p))
@@ -65,13 +67,43 @@ usertrap(void)
     intr_on();
 
     syscall();
-  } else if((which_dev = devintr()) != 0){
+
+  }else if(scause == 0xf){
+    // store page fault
+    uint64 va = r_stval(); // 发生异常的VA
+    if(va >= MAXVA){
+      setkilled(p);
+      goto checkend;
+    }
+    pde_t* pte = walk(p->pagetable, va, 0);
+    if(!pte || (*pte & PTE_COW) == 0){
+      setkilled(p);
+      goto checkend;
+    }
+    uint64 pa = PTE2PA(*pte);
+    if (refcnt((void *)pa) > 1){
+      void *new = kalloc();
+      memmove(new, (void *)pa, PGSIZE);
+      pput((void *)pa);
+      uint64 flags = PTE_FLAGS(*pte);
+      flags |= PTE_W;
+      flags &= ~PTE_COW;
+      *pte = PA2PTE(new) | flags;
+    }else{
+      // 目前该物理页只被当前进程引用
+      *pte |= PTE_W;
+      *pte &= ~PTE_COW;
+    }
+    
+  }else if((which_dev = devintr()) != 0){
     // ok
   } else {
     printf("usertrap(): unexpected scause 0x%lx pid=%d\n", r_scause(), p->pid);
     printf("            sepc=0x%lx stval=0x%lx\n", r_sepc(), r_stval());
     setkilled(p);
   }
+
+checkend:
 
   if(killed(p))
     exit(-1);

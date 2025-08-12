@@ -23,11 +23,64 @@ struct {
   struct run *freelist;
 } kmem;
 
+struct refcnt {
+  int refcnt;
+  struct spinlock lock;
+} *refcnts;
+
+#define index_to_refcnts(pa) (((uint64)pa-(uint64)KERNBASE)/PGSIZE)
+
+int refcnt(void* pa)
+{
+  if(pa < (void*)KERNBASE)
+    panic("refcnt: not a ref tracking page");
+  int i = index_to_refcnts(pa);
+  struct refcnt* rc = &refcnts[i]; 
+  acquire(&rc->lock);
+  int cnt = rc->refcnt;
+  release(&rc->lock);
+  return cnt;
+}
+
+void pget(void* pa)
+{
+  // 只处理KERNBASE以上物理页的引用计数
+  if(pa < (void*)KERNBASE){
+    printf("%p", pa);
+    panic("pget: not a ref tracking page");
+  }
+  int i = index_to_refcnts(pa);
+  struct refcnt* rc = &refcnts[i]; 
+  acquire(&rc->lock);
+  rc->refcnt++;
+  release(&rc->lock);
+}
+
+void pput(void* pa)
+{
+  // 只处理KERNBASE以上物理页的引用计数
+ if(pa < (void*)KERNBASE)
+    panic("pput: not a ref tracking page");
+  int i = index_to_refcnts(pa);
+  struct refcnt* rc = &refcnts[i]; 
+  if(rc->refcnt==0)
+    panic("pput: refcnt=0");
+  acquire(&rc->lock);
+  rc->refcnt--;
+  release(&rc->lock);
+}
+
 void
 kinit()
 {
+  int physpages = (PHYSTOP - PGROUNDUP((uint64)KERNBASE)) / PGSIZE;
+  uint64 refcnt_size = physpages * sizeof(refcnts[0]);
+  void* kmem_start = (void*)PGROUNDUP((uint64)end + refcnt_size); 
+
+  refcnts=(struct refcnt*)end;
+
   initlock(&kmem.lock, "kmem");
-  freerange(end, (void*)PHYSTOP);
+  freerange(kmem_start, (void*)PHYSTOP);
 }
 
 void
@@ -35,14 +88,17 @@ freerange(void *pa_start, void *pa_end)
 {
   char *p;
   p = (char*)PGROUNDUP((uint64)pa_start);
-  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE)
+  for(; p + PGSIZE <= (char*)pa_end; p += PGSIZE){
+    initlock(&refcnts[index_to_refcnts(p)].lock, "refcnt");
     kfree(p);
+  }
 }
 
 // Free the page of physical memory pointed at by pa,
 // which normally should have been returned by a
 // call to kalloc().  (The exception is when
 // initializing the allocator; see kinit above.)
+// 由调用者保证pa的引用计数为0
 void
 kfree(void *pa)
 {
@@ -75,8 +131,11 @@ kalloc(void)
   if(r)
     kmem.freelist = r->next;
   release(&kmem.lock);
-
-  if(r)
+  
+  if(r){
+    refcnts[index_to_refcnts(r)].refcnt=1; // 重置引用计数
     memset((char*)r, 5, PGSIZE); // fill with junk
+  }
+
   return (void*)r;
 }
