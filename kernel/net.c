@@ -19,12 +19,44 @@ static uint8 host_mac[ETHADDR_LEN] = { 0x52, 0x55, 0x0a, 0x00, 0x02, 0x02 };
 
 static struct spinlock netlock;
 
+#define MAX_QUEUED_PACKETS 16
+struct port_queue_mapping_entry {
+  uint16 port; // 0 represents unused
+  struct spinlock lock;
+  uint16 head,tail,size;
+  uint64 queued_packets[MAX_QUEUED_PACKETS];
+};
+
+#define MAX_MAPPINGS 64
+static struct port_queue_mapping_entry port_queue_mappings[MAX_MAPPINGS];
+
+int push_back(struct port_queue_mapping_entry* entry, void* addr){
+  if(!holding(&entry->lock))
+    panic("push_back: not holding");
+  if(entry->size==MAX_QUEUED_PACKETS)
+    return -1;
+  entry->size++;
+  entry->queued_packets[entry->tail]=(uint64)addr;
+  entry->tail = (entry->tail+1) % MAX_QUEUED_PACKETS; 
+  return 0;
+}
+
+uint64 pop_front(struct port_queue_mapping_entry* entry){
+  if(!holding(&entry->lock))
+    panic("pop_front: not holding");
+  if(entry->size==0)
+    panic("pop_front: size=0");
+  entry->size--;
+  uint64 addr = entry->queued_packets[entry->head];
+  entry->head = (entry->head+1) % MAX_QUEUED_PACKETS;
+  return addr;
+}
+
 void
 netinit(void)
 {
   initlock(&netlock, "netlock");
 }
-
 
 //
 // bind(int port)
@@ -38,7 +70,27 @@ sys_bind(void)
   // Your code here.
   //
 
-  return -1;
+  int port;
+  argint(0, &port);
+
+  int i;
+  for(i = 0; i < MAX_MAPPINGS; i++){
+    acquire(&port_queue_mappings[i].lock);
+    if(port_queue_mappings[i].port==0)
+      break;
+    release(&port_queue_mappings[i].lock);
+  }
+
+  if(i==MAX_MAPPINGS)
+    panic("bind: max");
+
+  port_queue_mappings[i].port=port;
+  port_queue_mappings[i].head=0;
+  port_queue_mappings[i].tail=0;
+  port_queue_mappings[i].size=0;
+
+  release(&port_queue_mappings[i].lock);
+  return 0;
 }
 
 //
@@ -53,6 +105,23 @@ sys_unbind(void)
   // Optional: Your code here.
   //
 
+  int port;
+  argint(0, &port);
+
+  int i;
+  for(i = 0; i < MAX_MAPPINGS; i++){
+    acquire(&port_queue_mappings[i].lock);
+    if(port_queue_mappings[i].port==port)
+      break;
+    release(&port_queue_mappings[i].lock);
+  }
+
+  if(i==MAX_MAPPINGS)
+    return -1;
+
+  port_queue_mappings[i].port=0;
+
+  release(&port_queue_mappings[i].lock);
   return 0;
 }
 
@@ -77,7 +146,60 @@ sys_recv(void)
   //
   // Your code here.
   //
-  return -1;
+
+  struct proc *p = myproc();
+  uint64 sport;
+  int dport;
+  uint64 src;
+  uint64 buf;
+  int maxlen;
+
+  struct eth* eth;
+  struct ip* ip;
+  struct udp* udp;
+  char* payload;
+
+  argint(0, &dport);
+  argaddr(1, &src);
+  argaddr(2, &sport);
+  argaddr(3, &buf);
+  argint(4, &maxlen);
+
+  int i;
+  for(i = 0; i < MAX_MAPPINGS; i++){
+    acquire(&port_queue_mappings[i].lock);
+    if(port_queue_mappings[i].port==dport)
+      break;
+    release(&port_queue_mappings[i].lock);
+  }
+  if(i==MAX_MAPPINGS){
+    return -1;
+  }
+
+  while(port_queue_mappings[i].size==0){
+    // printf("sleep: waiting for %d\n", dport);
+    sleep(&port_queue_mappings[i], &port_queue_mappings[i].lock);
+  }
+  eth = (struct eth*)pop_front(&port_queue_mappings[i]);
+  release(&port_queue_mappings[i].lock);
+
+  ip=(struct ip*)(eth+1);
+  udp=(struct udp*)(ip+1);
+  payload=(char*)(udp+1);
+
+  uint32 srcaddr=ntohl(ip->ip_src);
+  uint16 srcport=ntohs(udp->sport);
+
+  copyout(p->pagetable, src, (char*)&srcaddr, 4);
+  copyout(p->pagetable, sport, (char*)&srcport, 2);
+
+  int payloadlen=ntohs(udp->ulen)-sizeof(udp);
+  int copylen=payloadlen <= maxlen ? payloadlen : maxlen;
+
+  copyout(p->pagetable, buf, payload, copylen);
+
+  kfree((void*)eth);
+  return copylen;
 }
 
 // This code is lifted from FreeBSD's ping.c, and is copyright by the Regents
@@ -174,9 +296,7 @@ sys_send(void)
     return -1;
   }
 
-  e1000_transmit(buf, total);
-
-  return 0;
+  return e1000_transmit(buf, total);
 }
 
 void
@@ -191,7 +311,42 @@ ip_rx(char *buf, int len)
   //
   // Your code here.
   //
+
+  struct eth* eth = (struct eth*) buf;
+  struct ip* ip = (struct ip*)(eth+1);
   
+  if(ip->ip_p == IPPROTO_UDP){ // it's a UDP packet
+    struct udp* udp = (struct udp*)(ip+1);
+    uint16 port = ntohs(udp->dport);
+    // printf("ip_rx: port %d: received\n", port);
+
+    int i;
+    for(i = 0; i < MAX_MAPPINGS; i++){
+      acquire(&port_queue_mappings[i].lock);
+      if(port_queue_mappings[i].port==port)
+        break;
+      release(&port_queue_mappings[i].lock);
+    }
+    if(i==MAX_MAPPINGS){
+      // printf("ip_rx: port %d: port not bound, dropped\n", port);
+      kfree(buf);
+      return;
+    }
+
+    if(push_back(&port_queue_mappings[i], buf)==-1){
+      // printf("ip_rx: port %d: too many packets, dropped\n", port);
+      kfree(buf);
+      release(&port_queue_mappings[i].lock);
+      return;
+    }
+
+    wakeup(&port_queue_mappings[i]);
+    release(&port_queue_mappings[i].lock);
+  }else{
+    // not a packet we want
+    kfree(buf);
+  }
+
 }
 
 //

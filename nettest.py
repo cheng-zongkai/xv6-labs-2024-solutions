@@ -54,9 +54,8 @@ elif sys.argv[1] == "rxone":
     # and ip_rx() printing
     #   ip_rx: received an IP packet
     #
-    print("txone: sending one UDP packet")
     sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    sock.sendto(b'xyz', ("127.0.0.1", FWDPORT1))
+    sock.sendto(b"xyz", ("127.0.0.1", FWDPORT1))
 elif sys.argv[1] == "rx":
     #
     # test the xv6 receive path by sending a slow
@@ -164,6 +163,7 @@ elif sys.argv[1] == "grade":
     # third, act as a ping reflector.
     while True:
         buf, raddr = sock.recvfrom(4096)
+        print(f'recv: {raddr[0]}:{raddr[1]}')
         sock.sendto(buf, raddr)
 else:
     usage()

@@ -4,6 +4,11 @@
 #include "riscv.h"
 #include "spinlock.h"
 #include "proc.h"
+
+#ifndef LAB_NET
+#define LAB_NET
+#endif
+
 #include "defs.h"
 #include "e1000_dev.h"
 
@@ -18,7 +23,10 @@ static char *rx_bufs[RX_RING_SIZE];
 // remember where the e1000's registers live.
 static volatile uint32 *regs;
 
-struct spinlock e1000_lock;
+struct spinlock e1000_tx_lock;
+struct spinlock e1000_rx_lock;
+
+struct spinlock intr_lock;
 
 // called by pci_init().
 // xregs is the memory address at which the
@@ -28,7 +36,9 @@ e1000_init(uint32 *xregs)
 {
   int i;
 
-  initlock(&e1000_lock, "e1000");
+  initlock(&e1000_tx_lock, "e1000_tx");
+  initlock(&e1000_rx_lock, "e1000_rx");
+  initlock(&intr_lock, "intr");
 
   regs = xregs;
 
@@ -102,7 +112,32 @@ e1000_transmit(char *buf, int len)
   // a pointer so that it can be freed after send completes.
   //
 
+  acquire(&e1000_tx_lock);
+
+  // printf("transmit: %p with len %d\n", buf, len);
+
+  uint32 tail = regs[E1000_TDT];
+
+  if(!(tx_ring[tail].status & E1000_TXD_STAT_DD)){
+    release(&e1000_tx_lock);
+    return -1;
+  }
+
+  if(tx_bufs[tail])
+    kfree((void*)tx_ring[tail].addr);
+
+  tx_bufs[tail]=buf;
   
+  tx_ring[tail].addr=(uint64)buf;
+  tx_ring[tail].length=(uint16)len;
+  tx_ring[tail].cmd = E1000_TXD_CMD_RS | E1000_TXD_CMD_EOP;
+  tx_ring[tail].status = 0;
+
+  __sync_synchronize();
+
+  regs[E1000_TDT] = (tail + 1) % TX_RING_SIZE;
+
+  release(&e1000_tx_lock);  
   return 0;
 }
 
@@ -116,15 +151,46 @@ e1000_recv(void)
   // Create and deliver a buf for each packet (using net_rx()).
   //
 
+  acquire(&e1000_rx_lock);
+
+  uint32 tail = (regs[E1000_RDT] + 1) % RX_RING_SIZE; // first descriptor to be processed
+
+  while(rx_ring[tail].status & E1000_RXD_STAT_DD){
+    // printf("e1000_recv: new packet\n");
+    
+    // 使用 rx_bufs[tail] 而不是 rx_ring[tail].addr
+    net_rx(rx_bufs[tail], rx_ring[tail].length);
+
+    void* new_buf = kalloc();
+    if(!new_buf)
+      panic("e1000_recv: kalloc");
+      
+    // 同时更新两个数据结构
+    rx_bufs[tail] = new_buf;
+    rx_ring[tail].addr = (uint64)new_buf;
+    rx_ring[tail].status = 0;
+    regs[E1000_RDT] = tail; // 
+
+    tail = (tail + 1) % RX_RING_SIZE;
+  }
+
+  release(&e1000_rx_lock);
+
 }
+
 
 void
 e1000_intr(void)
 {
   // tell the e1000 we've seen this interrupt;
-  // without this the e1000 won't raise any
+  // without this the e1000 won't raise any                                                                                                                                           
   // further interrupts.
-  regs[E1000_ICR] = 0xffffffff;
 
+  regs[E1000_ICR] = 0xffffffff;
   e1000_recv();
+
+  // acquire(&intr_lock);
+  // regs[E1000_ICR] = 0xffffffff;
+  // e1000_recv();
+  // release(&intr_lock);
 }

@@ -473,6 +473,8 @@ ping3()
   }
   sleep(1);
   
+  
+
   //
   // send so many packets from 2008 and 2010 that some of the
   // replies must be dropped due to the requirement
@@ -595,6 +597,8 @@ ping3()
   }
 
   printf("ping3: OK\n");
+  unbind(2008);
+  unbind(2009);
 
   return 1;
 }
@@ -787,7 +791,7 @@ dns()
   memset(ibuf, 0, N);
   
   // 8.8.8.8: google's name server
-  dst = (8 << 24) | (8 << 16) | (8 << 8) | (8 << 0);
+  dst = (223 << 24) | (5 << 16) | (5 << 8) | (5 << 0);
 
   len = dns_req(obuf);
   
