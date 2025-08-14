@@ -169,7 +169,10 @@ e1000_recv(void)
     rx_bufs[tail] = new_buf;
     rx_ring[tail].addr = (uint64)new_buf;
     rx_ring[tail].status = 0;
-    regs[E1000_RDT] = tail; // 
+    
+    __sync_synchronize();
+    
+    regs[E1000_RDT] = tail; 
 
     tail = (tail + 1) % RX_RING_SIZE;
   }
