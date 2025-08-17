@@ -66,17 +66,17 @@ kfree(void *pa)
 
   push_off();
   int id = cpuid();
-  pop_off();
-
+  
   // Fill with junk to catch dangling refs.
   memset(pa, 1, PGSIZE);
-
+  
   r = (struct run*)pa;
-
+  
   acquire(&kmem[id].lock);
   r->next = kmem[id].freelist;
   kmem[id].freelist = r;
   release(&kmem[id].lock);
+  pop_off();
 
 }
 
