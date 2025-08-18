@@ -341,6 +341,10 @@ sys_open(void)
     return -1;
   }
 
+  if(ip->type == T_DEVICE && ip->major == CONSOLE){
+    consolecontrol(myproc());
+  }
+
   if((f = filealloc()) == 0 || (fd = fdalloc(f)) < 0){
     if(f)
       fileclose(f);

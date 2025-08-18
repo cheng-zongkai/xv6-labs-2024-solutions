@@ -50,7 +50,15 @@ struct {
   uint r;  // Read index
   uint w;  // Write index
   uint e;  // Edit index
+
+  struct proc* controling_process;
+
 } cons;
+
+void
+consolecontrol(struct proc* p){
+  cons.controling_process=p;
+}
 
 //
 // user write()s to the console go here.
@@ -138,7 +146,11 @@ consoleintr(int c)
   acquire(&cons.lock);
 
   switch(c){
-  case C('P'):  // Print process list.
+  case C('C'):
+    if(cons.controling_process)
+      setkilled(cons.controling_process);
+    break;
+  case C('O'):  // Print process list.
     procdump();
     break;
   case C('U'):  // Kill line.

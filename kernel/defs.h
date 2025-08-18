@@ -21,6 +21,7 @@ void            bunpin(struct buf*);
 void            consoleinit(void);
 void            consoleintr(int);
 void            consputc(int);
+void            consolecontrol(struct proc*);
 
 // exec.c
 int             exec(char*, char**);
