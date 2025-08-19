@@ -316,6 +316,30 @@ sys_open(void)
 
   begin_op();
 
+  int maxd=10;
+  if(!(omode & O_NOFOLLOW)) { // sys_open should follow symbol link
+    while(1) {
+      ip = namei(path);
+      if(!ip)
+        break;
+
+      ilock(ip);
+      if(ip->type != T_SYMLINK){
+        iunlockput(ip);  
+        break;
+      }
+      if(maxd==0){ // too many recursive links 
+        end_op();
+        iunlockput(ip);
+        return -1;
+      }
+      readi(ip, 0, (uint64)path, 0, MAXPATH);
+      iunlockput(ip);
+      maxd--;
+    }
+    // Success: path now contains the target of the final symbolic link
+  }
+  
   if(omode & O_CREATE){
     ip = create(path, T_FILE, 0, 0);
     if(ip == 0){
@@ -368,6 +392,7 @@ sys_open(void)
   end_op();
 
   return fd;
+
 }
 
 uint64
@@ -501,5 +526,37 @@ sys_pipe(void)
     fileclose(wf);
     return -1;
   }
+  return 0;
+}
+
+uint64
+sys_symlink(void)
+{
+  char target[MAXPATH], path[MAXPATH];
+  struct inode* ip;
+
+  begin_op();
+
+  if(argstr(0, target, sizeof(target)) < 0 || argstr(1, path, sizeof(path)) < 0){
+    end_op();
+    return -1;
+  }
+
+  if((ip=create(path, T_SYMLINK, 0, 0)) == 0){
+    end_op();
+    return -1;
+  }
+
+  int len = strlen(target)+1;
+  if(writei(ip, 0, (uint64)target, 0, len) < len){
+    ip->nlink--;
+    iupdate(ip);
+    iunlockput(ip);
+    end_op();
+    return -1;
+  }
+
+  iunlockput(ip);
+  end_op();
   return 0;
 }
