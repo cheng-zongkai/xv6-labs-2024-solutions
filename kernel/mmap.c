@@ -109,7 +109,7 @@ int munmap(struct proc* p, uint64 va, size_t len)
   
   for(uint64 a=va; a < va+len; a+=PGSIZE){
     pte_t* pte = walk(p->pagetable, a, 0);
-    if(pte==0 || (*pte & PTE_V) == 0) // this page was not used (so no memory allocated), no need to unmap it
+    if(pte==0 || (*pte & PTE_V) == 0) // this page was not used (thus no memory allocated), no need to unmap it
       continue;
     if((myvma->flags & MAP_SHARED) && (*pte & PTE_D)){
       // write back to file
