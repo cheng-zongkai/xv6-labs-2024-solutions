@@ -366,7 +366,7 @@ more_test()
 
   *p = 'X';
   *(p+PGSIZE) = 'Y';
-
+  
   pid = fork();
   if(pid < 0) err("fork");
   if(pid == 0){
@@ -382,7 +382,7 @@ more_test()
   wait(&st);
   if(st != -1)
     err("child #1 read unmapped memory");
-
+  
   pid = fork();
   if(pid < 0) err("fork");
   if(pid == 0){

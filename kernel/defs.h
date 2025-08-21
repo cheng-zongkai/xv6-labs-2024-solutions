@@ -237,3 +237,7 @@ void            netinit(void);
 void            net_rx(char *buf, int len);
 
 #endif
+
+#ifdef LAB_MMAP
+int             munmap(struct proc* p, uint64 va, size_t len);
+#endif

@@ -5,6 +5,10 @@
 #include "spinlock.h"
 #include "proc.h"
 #include "defs.h"
+#include "fcntl.h"
+#include "sleeplock.h"
+#include "fs.h"
+#include "file.h"
 
 struct spinlock tickslock;
 uint ticks;
@@ -15,6 +19,7 @@ extern char trampoline[], uservec[], userret[];
 void kernelvec();
 
 extern int devintr();
+extern int mmaphandler();
 
 void
 trapinit(void)
@@ -65,6 +70,9 @@ usertrap(void)
     intr_on();
 
     syscall();
+  }else if(r_scause() == 0xd || r_scause() == 0xf){ // load page fault
+    if(mmaphandler()!=0)
+      setkilled(p);
   } else if((which_dev = devintr()) != 0){
     // ok
   } else {
@@ -216,3 +224,69 @@ devintr()
   }
 }
 
+int mmaphandler()
+{
+  struct proc* p = myproc();
+  struct vma* myvma;
+  long offset;
+  void* pa;
+  uint64 len;
+  
+  uint64 va = r_stval();
+  uint64 scause = r_scause();
+
+  // find the vma which va falls in
+  myvma = 0;
+  for(int i = 0; i < NELEM(p->vma); i++){
+    if(p->vma[i].len && p->vma[i].addr <= va && va < p->vma[i].addr + p->vma[i].len){
+      myvma = &p->vma[i];
+      break;
+    }
+  }
+  // this va is not mmapped
+  if(!myvma) 
+    return -1;
+  if((myvma->prot & PROT_READ) == 0)
+    return -1;
+  if(scause == 0xf && (myvma->prot & PROT_WRITE) == 0)
+    return -1;
+
+  va = PGROUNDDOWN(va);
+  offset = myvma->offset + (va - myvma->addr);
+  len = myvma->len - offset;
+
+  if(len < 0)
+    len=0;
+  if(len > PGSIZE)
+    len=PGSIZE;
+
+  pa = kalloc();
+  if(!pa)
+    return -1;
+
+  memset(pa, 0, PGSIZE);
+
+  // read file's content to pa
+  ilock(myvma->f->ip);
+  if (readi(myvma->f->ip, 0, (uint64)pa, offset, len) < 0){
+    iunlock(myvma->f->ip);
+    kfree(pa);
+    return -1;
+  }
+  iunlock(myvma->f->ip);
+  
+  // maps pa to va, and set the permissions
+  uint64 perm = PTE_U;
+  if(myvma->prot & PROT_READ)
+    perm |= PTE_R;
+  if(myvma->prot & PROT_WRITE)
+    perm |= PTE_W;
+  pte_t* pte = walk(p->pagetable, va, 1);
+  if(!pte){
+    kfree(pa);
+    return -1;
+  }
+  *pte = PA2PTE(pa) | perm | PTE_V;
+
+  return 0;
+}
