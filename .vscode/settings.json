@@ -1,0 +1,9 @@
+{
+    "files.associations": {
+        "proc.h": "c",
+        "file.h": "c",
+        "limits": "c",
+        "param.h": "c",
+        "stat.h": "c"
+    }
+}
