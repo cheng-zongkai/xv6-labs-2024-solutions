@@ -8,20 +8,25 @@
 char *mysecret="abcdefgh";
 
 // 模式控制宏：
-// PROBE_MODE = 0: 实际攻击模式，直接从预测的内存位置读取secret
-// PROBE_MODE = 1: 探测模式，用于分析attacktest的内存分配模式
-// 在运行xv6中./attacktest之前，请先令PROBE_MODE=0
-#define PROBE_MODE 0
+// PROBE_MODE= 0: 实际攻击模式，直接从预测的内存位置读取secret
+// PROBE_MODE= 1: 探测模式，用于分析attacktest的内存分配模式
+
+// （1）先令PROBE_MODE=1，运行attacktest，attack输出探测结果
+// （2）随后，根据探测结果修改PROBE_RES宏，运行attacktest
+// （3）attacktest输出测试结果
+
+#define PROBE_MODE 1
+#define PROBE_RES 16
 
 int
 main(int argc, char *argv[])
 {
   // 攻击原理：
-  // 1. xv6的内存分配器在释放页面后不会清零或填充垃圾数据
-  // 2. attacktest程序会执行secret程序，secret程序会将密钥存储在内存中
-  // 3. secret程序结束后，其占用的内存页面会被释放，但内容仍然保留
-  // 4. 当我们的attack程序申请内存时，很可能获得之前secret程序使用过的页面
-  // 5. 通过读取这些页面的内容，就能恢复出原始的secret
+  // xv6的内存分配器在释放页面后不会清零或填充垃圾数据
+  // attacktest程序会执行secret程序，secret程序会将密钥存储在内存中
+  // secret程序结束后，其占用的内存页面会被释放，但内容仍然保留
+  // 当我们的attack程序申请内存时，很可能获得之前secret程序使用过的页面
+  // 通过读取这些页面的内容，就能恢复出原始的secret
   //
   // 具体策略：
   // - 通过PROBE_MODE模式分析attacktest的内存分配模式
@@ -45,7 +50,7 @@ main(int argc, char *argv[])
   // 偏移32字节可以跳过这些元数据，读取到secret程序留下的实际数据
   // (end+16*PGSIZE)+32 指向第16个页面的第32个字节
   // 将8字节的secret写入文件描述符2（stderr）
-  write(2,(end+16*PGSIZE)+32,8);
+  write(2,(end+PROBE_RES*PGSIZE)+32,8);
   exit(0);
 
   #else
@@ -63,7 +68,7 @@ main(int argc, char *argv[])
       // 指向下一个空闲页面的指针，这会覆盖页面开头的原始数据
       // 因此必须跳过页面开头的元数据区域，从偏移32字节处开始读取
       if(strcmp(end+32, mysecret) == 0){
-        printf("found secret in %dth page\n", i); // 输出：found secret in 16th page\n
+        printf("attack: found secret in %dth page\n", i); // 输出：found secret in 16th page\n
         exit(0);
       }
       end += PGSIZE; // 移动到下一个页面
@@ -122,17 +127,19 @@ main(int argc, char *argv[])
   }
 
   #endif
+
   // 攻击总结：
-  // 1. 在PROBE_MODE=1时，我们模拟attacktest的完整执行流程来分析内存布局
-  // 2. 通过实验发现secret通常存储在第16个页面的偏移32字节处
-  // 3. 在PROBE_MODE=0时，我们直接利用这个发现进行攻击
-  // 4. 由于xv6不清零释放的内存，我们能够成功恢复secret内容
-  //
+  // （1）在PROBE_MODE=1时，我们模拟attacktest的完整执行流程来分析内存布局
+  // （2）通过实验发现secret通常存储在第16个页面的偏移32字节处
+  // （3）在PROBE_MODE=0时，我们直接利用这个发现进行攻击
+  // （4）由于xv6不清零释放的内存，我们能够成功恢复secret内容
+  
   // 这种攻击利用了以下漏洞：
   // - 内存管理器不清零释放的页面
   // - 进程间的内存隔离不够完善  
   // - secret程序没有主动清零敏感数据
-  // 以及对xv6内存分配器实现细节的深入理解：
+
+  // 另外，对于为什么不在页面的开头写入秘密字符串：
   // - kalloc会在空闲页面开头存储链表指针，但不会清零整个页面
   // - 通过适当的偏移可以绕过分配器的元数据，读取到残留的用户数据
 
