@@ -177,7 +177,7 @@ sys_recv(void)
   }
 
   while(port_queue_mappings[i].size==0){
-    // printf("sleep: waiting for %d\n", dport);
+    // printf("sleep: proc %s waiting for %d\n", p->name, dport);
     sleep(&port_queue_mappings[i], &port_queue_mappings[i].lock);
   }
   eth = (struct eth*)pop_front(&port_queue_mappings[i]);

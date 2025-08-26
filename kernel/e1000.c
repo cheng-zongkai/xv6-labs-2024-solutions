@@ -114,8 +114,6 @@ e1000_transmit(char *buf, int len)
 
   acquire(&e1000_tx_lock);
 
-  // printf("transmit: %p with len %d\n", buf, len);
-
   uint32 tail = regs[E1000_TDT];
 
   if(!(tx_ring[tail].status & E1000_TXD_STAT_DD)){
@@ -138,6 +136,7 @@ e1000_transmit(char *buf, int len)
   regs[E1000_TDT] = (tail + 1) % TX_RING_SIZE;
 
   release(&e1000_tx_lock);  
+
   return 0;
 }
 
@@ -153,32 +152,29 @@ e1000_recv(void)
 
   acquire(&e1000_rx_lock);
 
-  uint32 tail = (regs[E1000_RDT] + 1) % RX_RING_SIZE; // first descriptor to be processed
+  uint32 tail = (regs[E1000_RDT] + 1) % RX_RING_SIZE;
 
   while(rx_ring[tail].status & E1000_RXD_STAT_DD){
-    // printf("e1000_recv: new packet\n");
     
-    // 使用 rx_bufs[tail] 而不是 rx_ring[tail].addr
-    net_rx(rx_bufs[tail], rx_ring[tail].length);
+    net_rx((char*)rx_ring[tail].addr, rx_ring[tail].length);
 
     void* new_buf = kalloc();
     if(!new_buf)
       panic("e1000_recv: kalloc");
       
-    // 同时更新两个数据结构
     rx_bufs[tail] = new_buf;
     rx_ring[tail].addr = (uint64)new_buf;
+    rx_ring[tail].length = PGSIZE;
     rx_ring[tail].status = 0;
     
     __sync_synchronize();
     
     regs[E1000_RDT] = tail; 
-
     tail = (tail + 1) % RX_RING_SIZE;
+
   }
-
+  
   release(&e1000_rx_lock);
-
 }
 
 
@@ -191,9 +187,4 @@ e1000_intr(void)
 
   regs[E1000_ICR] = 0xffffffff;
   e1000_recv();
-
-  // acquire(&intr_lock);
-  // regs[E1000_ICR] = 0xffffffff;
-  // e1000_recv();
-  // release(&intr_lock);
 }
