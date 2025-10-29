@@ -77,7 +77,6 @@ bget(uint dev, uint blockno)
 {
   struct buf *b;
   int bucket_id = hash(dev, blockno);
-  uint timestamp = 0;
 
   acquire(&bcache.bucket[bucket_id].lock);
 
