@@ -28,6 +28,7 @@
 struct hashbucket {
   struct spinlock lock;
   struct buf head;  // head of circular doubly-linked list
+  uint ticks;       // for LRU timestamp
 };
 
 struct {
@@ -53,6 +54,7 @@ binit(void)
     initlock(&bcache.bucket[i].lock, lockname);
     bcache.bucket[i].head.prev = &bcache.bucket[i].head;
     bcache.bucket[i].head.next = &bcache.bucket[i].head;
+    bcache.bucket[i].ticks = 0;
   }
 
   // Distribute buffers across buckets in round-robin fashion
@@ -185,7 +187,6 @@ bwrite(struct buf *b)
 void
 brelse(struct buf *b)
 {
-  static uint ticks_counter = 0;
   int bucket_id;
   
   if(!holdingsleep(&b->lock))
@@ -197,8 +198,8 @@ brelse(struct buf *b)
   acquire(&bcache.bucket[bucket_id].lock);
   b->refcnt--;
   if (b->refcnt == 0) {
-    // Update timestamp for LRU
-    b->timestamp = ++ticks_counter;
+    // Update timestamp for LRU using per-bucket counter
+    b->timestamp = ++bcache.bucket[bucket_id].ticks;
   }
   release(&bcache.bucket[bucket_id].lock);
 }
