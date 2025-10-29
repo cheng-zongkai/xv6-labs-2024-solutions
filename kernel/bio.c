@@ -133,13 +133,31 @@ bget(uint dev, uint blockno)
     }
     
     if(lru) {
-      // Remove from current bucket
+      // Acquire both locks in consistent order to avoid deadlock
+      // Always acquire lower-numbered bucket lock first
+      if(i < bucket_id) {
+        // We already hold bucket i lock
+        acquire(&bcache.bucket[bucket_id].lock);
+      } else {
+        // Release i, acquire in order: bucket_id then i
+        release(&bcache.bucket[i].lock);
+        acquire(&bcache.bucket[bucket_id].lock);
+        acquire(&bcache.bucket[i].lock);
+        
+        // Re-check that lru is still valid (refcnt could have changed)
+        if(lru->refcnt != 0) {
+          release(&bcache.bucket[i].lock);
+          release(&bcache.bucket[bucket_id].lock);
+          continue;  // Try next bucket
+        }
+      }
+      
+      // Remove from source bucket
       lru->next->prev = lru->prev;
       lru->prev->next = lru->next;
       release(&bcache.bucket[i].lock);
       
-      // Add to target bucket
-      acquire(&bcache.bucket[bucket_id].lock);
+      // Add to target bucket (we still hold bucket_id lock)
       lru->next = bcache.bucket[bucket_id].head.next;
       lru->prev = &bcache.bucket[bucket_id].head;
       bcache.bucket[bucket_id].head.next->prev = lru;
