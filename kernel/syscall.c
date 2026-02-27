@@ -107,6 +107,12 @@ extern uint64 sys_bind(void);
 extern uint64 sys_unbind(void);
 extern uint64 sys_send(void);
 extern uint64 sys_recv(void);
+extern uint64 sys_tcplisten(void);
+extern uint64 sys_tcpaccept(void);
+extern uint64 sys_tcpconnect(void);
+extern uint64 sys_tcpsend(void);
+extern uint64 sys_tcprecv(void);
+extern uint64 sys_tcpclose(void);
 #endif
 #ifdef LAB_PGTBL
 extern uint64 sys_pgpte(void);
@@ -142,6 +148,12 @@ static uint64 (*syscalls[])(void) = {
 [SYS_unbind] sys_unbind,
 [SYS_send] sys_send,
 [SYS_recv] sys_recv,
+[SYS_tcplisten] sys_tcplisten,
+[SYS_tcpaccept] sys_tcpaccept,
+[SYS_tcpconnect] sys_tcpconnect,
+[SYS_tcpsend] sys_tcpsend,
+[SYS_tcprecv] sys_tcprecv,
+[SYS_tcpclose] sys_tcpclose,
 #endif
 #ifdef LAB_PGTBL
 [SYS_pgpte] sys_pgpte,

@@ -35,3 +35,9 @@
 #define SYS_recv      32
 #define SYS_pgpte     33
 #define SYS_kpgtbl    34
+#define SYS_tcplisten 35
+#define SYS_tcpaccept 36
+#define SYS_tcpconnect 37
+#define SYS_tcpsend   38
+#define SYS_tcprecv   39
+#define SYS_tcpclose  40

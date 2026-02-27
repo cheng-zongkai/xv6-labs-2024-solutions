@@ -31,6 +31,12 @@ int bind(uint16);
 int unbind(uint16);
 int send(uint16, uint32, uint16, char *, uint32);
 int recv(uint16, uint32*, uint16*, char *, uint32);
+int tcplisten(uint16);
+int tcpaccept(int, uint32*, uint16*);
+int tcpconnect(uint16, uint32, uint16);
+int tcpsend(int, char *, uint32);
+int tcprecv(int, char *, uint32);
+int tcpclose(int);
 #endif
 #ifdef LAB_PGTBL
 int ugetpid(void);

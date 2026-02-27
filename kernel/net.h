@@ -69,6 +69,29 @@ struct udp {
   uint16 sum;   // checksum
 };
 
+// a TCP header (comes after an IP header, before TCP payload).
+// The minimal xv6 TCP implementation in net.c only supports
+// fixed-size headers without TCP options (data offset = 5).
+struct tcp {
+  uint16 sport; // source port
+  uint16 dport; // destination port
+  uint32 seq;   // sequence number
+  uint32 ack;   // acknowledgment number
+  uint8  off;   // high nibble: header length in 32-bit words
+  uint8  flags; // control flags
+  uint16 win;   // receive window
+  uint16 sum;   // checksum (includes pseudo header)
+  uint16 urp;   // urgent pointer
+} __attribute__((packed));
+
+enum {
+  TCP_FIN = 0x01,
+  TCP_SYN = 0x02,
+  TCP_RST = 0x04,
+  TCP_PSH = 0x08,
+  TCP_ACK = 0x10,
+};
+
 // an ARP packet (comes after an Ethernet header).
 struct arp {
   uint16 hrd; // format of hardware address
